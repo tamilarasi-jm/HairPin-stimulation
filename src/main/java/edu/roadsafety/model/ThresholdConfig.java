@@ -20,6 +20,6 @@ public record ThresholdConfig(
     }
 
     public static ThresholdConfig courseDefaults() {
-        return new ThresholdConfig(1.5, 3.5, 5.0, Duration.ofMinutes(2), Duration.ofMinutes(5));
+        return new ThresholdConfig(40, 60, 80, Duration.ofMinutes(2), Duration.ofMinutes(5));
     }
 }

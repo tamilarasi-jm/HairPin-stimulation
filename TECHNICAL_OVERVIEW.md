@@ -47,9 +47,9 @@ The current project has no database or web tier. JDBC/MySQL, Servlet/JSP/Tomcat 
 
 ## Evidence corroboration
 
-The evidence engine weights observation types using `CourseEvidenceScoringStrategy`, applies observation confidence, associates observations within a configurable temporal window, and matches vehicle and direction when present. Evidence-group diversity and distinct types contribute to corroboration. Matching normal-passage evidence reduces certainty; isolated impact or stop evidence is not enough to confirm an incident.
+The dashboard visualizes a **Course-Project Evidence Support Score** from `0–100`. This is a course-project simulation parameter for illustrating corroboration, not a mathematical formula supplied by the invention disclosure. `CourseEvidenceScoringConfig` defines confidence floors, type contributions, and the contradiction penalty; `ThresholdConfig` defines the configurable defaults: `0–39` insufficient evidence, `40–59` abnormal, `60–79` incident confirmation, and `80–100` the confirmed-incident threshold.
 
-Course-project defaults: abnormal score `1.5`, confirmation score `3.5`, confirmed score `5.0`, evidence window `2 minutes`, stale age `5 minutes`, and a confidence quality floor of `0.5`. Incident confirmation requires at least three distinct signal types, two evidence groups, a critical impact/loss-of-control indication, and no matching high-confidence normal-passage contradiction. Values and rules are simulation parameters, not patent-defined values.
+The evidence service weights the strongest observation for each type/evidence-group pair by its confidence, associates observations within the configurable temporal window, and matches vehicle and direction when present. Evidence from connected sections may contribute; evidence-group diversity and distinct types contribute to corroboration. The course-project type contributions are: vehicle detected `8`, speed change `12`, abnormal stop `45`, impact `30`, obstacle `25`, and loss of control `25`. Matching normal-passage evidence subtracts `20 × confidence` per qualifying contradiction when abnormal support is present. The resulting score is clamped to `0–100`. Incident confirmation requires at least three distinct signal types, two evidence groups, a critical impact/loss-of-control indication, and no matching high-confidence normal-passage contradiction. One abnormal-stop observation does not confirm an incident. Default evidence window is `2 minutes`, stale age is `5 minutes`, and the trigger-quality floor is `0.5`. These formulas, values, and rules are simulation parameters, not patent-defined values.
 
 `OBSERVATION_GAP` or very low confidence is surfaced as degraded evidence. The system represents stale or missing evidence as observation deficiency/uncertainty, rather than silently treating it as normal.
 
@@ -82,7 +82,7 @@ Monitoring attention becomes elevated only after at least two distinct scenario 
 
 ## GUI flow
 
-The Swing dashboard provides ten scenario selectors, Start/Pause/Reset, a conceptual section map, per-section state/role/evidence/warning/attention level, simulation timestamps in UTC, active-incident status, a live event/evidence stream, and historical profile summaries. Replay delay exists only to make event progression visible.
+The Swing dashboard provides ten scenario selectors, Start/Pause/Reset, a GridBagLayout-based zig-zag view of the connected S1–S5 sections, per-section state/role/warning/attention level, and a 0–100 evidence progress bar backed by each section's latest engine `EvidenceResult`. Active incidents display their type and a prominent static indicator. The event stream is updated by the existing `SimulationListener` during sequential replay; the latest processed observation and synthetic simulation time are highlighted. A legend explains that state colors represent simulated operational states. Replay delay exists only to make event progression visible; no progress animation synthesizes evidence.
 
 ## Design patterns and separation
 

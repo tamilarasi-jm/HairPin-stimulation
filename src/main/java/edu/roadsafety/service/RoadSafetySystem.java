@@ -165,8 +165,7 @@ public final class RoadSafetySystem {
             }
             boolean obstructionPresent = sectionObservations.stream()
                     .anyMatch(item -> item.observationType() == ObservationType.OBSTACLE
-                            && !item.timestamp().isBefore(activeIncident.getConfirmedAt() == null
-                            ? activeIncident.getDetectedAt() : activeIncident.getConfirmedAt())
+                            && !item.timestamp().isBefore(activeIncident.getDetectedAt())
                             && item.quality() >= 0.6);
             if (obstructionPresent && (section.getSafetyState() == SafetyState.CONFIRMED_INCIDENT
                     || section.getSafetyState() == SafetyState.RECOVERY)) {
@@ -284,6 +283,14 @@ public final class RoadSafetySystem {
             activeIncidentsBySection.put(section.getSectionId(), incident);
             addHistory(now, section.getSectionId(), "INCIDENT_CONFIRMED",
                     incident.getIncidentId() + " - " + incident.getIncidentType(), null, null);
+            boolean obstructionPresent = sectionEvidence.stream()
+                    .anyMatch(item -> item.observationType() == ObservationType.OBSTACLE
+                            && !item.timestamp().isBefore(incident.getDetectedAt())
+                            && item.quality() >= 0.6);
+            if (obstructionPresent) {
+                transition(section, SafetyState.CONTINUING_HAZARD, now,
+                        "Obstacle evidence remains after incident confirmation");
+            }
         }
     }
 

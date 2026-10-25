@@ -1,6 +1,7 @@
 package edu.roadsafety.simulation;
 
 import edu.roadsafety.enums.OperationalRole;
+import edu.roadsafety.enums.EvidenceStatus;
 import edu.roadsafety.enums.ObservationType;
 import edu.roadsafety.enums.SafetyState;
 import edu.roadsafety.model.Observation;
@@ -12,12 +13,16 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScenarioTest {
@@ -68,6 +73,53 @@ class ScenarioTest {
     }
 
     @Test
+    void courseEvidenceScoreIsNormalizedAndCorroboratesActualObservations() {
+        RoadSafetySystem isolatedSystem = new RoadSafetySystem();
+        var isolated = isolatedSystem.processObservation(observation("STOP", ObservationType.ABNORMAL_STOP,
+                Instant.parse("2026-10-24T12:00:00Z"), "E1"));
+        assertEquals(40.5, isolated.evidence().score());
+        assertEquals(EvidenceStatus.ABNORMAL, isolated.evidence().status());
+        assertEquals(SafetyState.ABNORMAL, sectionState(isolatedSystem, "S3"));
+        assertTrue(isolatedSystem.getActiveIncidents().isEmpty());
+
+        RoadSafetySystem corroboratingSystem = new RoadSafetySystem();
+        ObservationType[] types = {
+                ObservationType.VEHICLE_DETECTED,
+                ObservationType.SPEED_CHANGE,
+                ObservationType.ABNORMAL_STOP,
+                ObservationType.IMPACT,
+                ObservationType.OBSTACLE
+        };
+        double previousScore = 0;
+        double finalScore = 0;
+        for (int index = 0; index < types.length; index++) {
+            String group = index < 2 ? "E1" : "E2";
+            var result = corroboratingSystem.processObservation(observation("CORROBORATION-" + index,
+                    types[index], Instant.parse("2026-10-24T12:01:00Z").plusSeconds(index), group));
+            finalScore = result.evidence().score();
+            assertTrue(finalScore > previousScore);
+            assertTrue(finalScore <= 100);
+            previousScore = finalScore;
+        }
+        assertEquals(100, finalScore);
+        assertEquals(SafetyState.CONTINUING_HAZARD, sectionState(corroboratingSystem, "S3"));
+        assertEquals(1, corroboratingSystem.getActiveIncidents().size());
+    }
+
+    @Test
+    void matchingNormalObservationReducesCourseEvidenceScore() {
+        RoadSafetySystem system = new RoadSafetySystem();
+        Instant start = Instant.parse("2026-10-24T12:02:00Z");
+        var abnormal = system.processObservation(observation("STOP-CONFLICT", ObservationType.ABNORMAL_STOP,
+                start, "E1"));
+        var normal = system.processObservation(observation("NORMAL-CONFLICT", ObservationType.NORMAL_PASSAGE,
+                start.plusSeconds(1), "E1"));
+        assertTrue(normal.evidence().score() < abnormal.evidence().score());
+        assertEquals(EvidenceStatus.CONTRADICTORY, normal.evidence().status());
+        assertTrue(normal.evidence().score() >= 0);
+    }
+
+    @Test
     void corroboratedCollisionConfirmsAndDifferentiatesRoles() throws IOException {
         RoadSafetySystem system = run(ScenarioType.CONFIRMED_COLLISION);
         assertEquals(SafetyState.CONTINUING_HAZARD, sectionState(system, "S3"));
@@ -114,6 +166,119 @@ class ScenarioTest {
         assertTrue(system.getActiveIncidents().isEmpty());
         assertTrue(system.getHistory().stream().anyMatch(entry ->
                 entry.stateAfter() == SafetyState.RECOVERY));
+    }
+
+    @Test
+    void requestedScenariosExposeProgressAndExpectedFinalStatus() throws IOException {
+        for (ScenarioType type : List.of(ScenarioType.NORMAL_TRAFFIC, ScenarioType.ABNORMAL_STOP,
+                ScenarioType.CONFIRMED_COLLISION, ScenarioType.FALSE_POSITIVE,
+                ScenarioType.CONTRADICTORY_DATA, ScenarioType.CONTINUING_HAZARD, ScenarioType.RECOVERY)) {
+            RoadSafetySystem system = new RoadSafetySystem();
+            List<Double> s3Scores = new ArrayList<>();
+            Map<ObservationType, Double> collisionSignalScores = new LinkedHashMap<>();
+            runner.run(type, system, (event, result) -> {
+                if (event.observation().roadSectionId().equals("S3")) {
+                    s3Scores.add(result.evidence().score());
+                    if (type == ScenarioType.CONFIRMED_COLLISION
+                            && EnumSet.of(ObservationType.VEHICLE_DETECTED, ObservationType.SPEED_CHANGE,
+                            ObservationType.ABNORMAL_STOP, ObservationType.IMPACT, ObservationType.OBSTACLE)
+                            .contains(event.observation().observationType())) {
+                        collisionSignalScores.putIfAbsent(event.observation().observationType(),
+                                result.evidence().score());
+                    }
+                }
+            });
+            RoadSection s3 = section(system, "S3");
+            double finalScore = s3.getLatestEvidence() == null ? 0 : s3.getLatestEvidence().score();
+            EvidenceStatus evidenceStatus = s3.getLatestEvidence() == null
+                    ? EvidenceStatus.INSUFFICIENT : s3.getLatestEvidence().status();
+            boolean activeIncident = system.getActiveIncidents().stream()
+                    .anyMatch(incident -> incident.getRoadSectionId().equals("S3"));
+            boolean recoveryAchieved = system.getHistory().stream()
+                    .anyMatch(entry -> entry.roadSectionId().equals("S3")
+                            && entry.stateAfter() == SafetyState.RECOVERY);
+            long contradictions = system.getHistory().stream()
+                    .filter(entry -> entry.roadSectionId().equals("S3")
+                            && entry.category().equals("EVIDENCE_CONTRADICTION"))
+                    .count();
+
+            System.out.printf("SCENARIO %s | state=%s | S3 score=%.1f | active incident=%s"
+                            + " | evidence=%s | contradictions=%d | affected section=%s"
+                            + " | roles=%s | recovery=%s",
+                    type.getDatasetName(), s3.getSafetyState(), finalScore, activeIncident, evidenceStatus,
+                    contradictions,
+                    s3.getSafetyState() == SafetyState.NORMAL && type == ScenarioType.NORMAL_TRAFFIC
+                            ? "none" : "S3",
+                    system.getRoadsideUnits().stream().map(unit -> unit.unitId() + "=" + unit.role()).toList(),
+                    recoveryAchieved);
+            if (type == ScenarioType.CONFIRMED_COLLISION) {
+                System.out.print(" | replay signal scores=" + collisionSignalScores);
+            }
+            System.out.println();
+
+            switch (type) {
+                case NORMAL_TRAFFIC -> {
+                    assertEquals(SafetyState.NORMAL, s3.getSafetyState());
+                    assertTrue(system.getActiveIncidents().isEmpty());
+                }
+                case ABNORMAL_STOP -> {
+                    assertTrue(EnumSet.of(SafetyState.ABNORMAL, SafetyState.INCIDENT_CONFIRMATION)
+                            .contains(s3.getSafetyState()));
+                    assertTrue(system.getActiveIncidents().isEmpty());
+                }
+                case CONFIRMED_COLLISION -> {
+                    assertTrue(s3Scores.size() > 3);
+                    List<ObservationType> progression = List.of(ObservationType.VEHICLE_DETECTED,
+                            ObservationType.SPEED_CHANGE, ObservationType.ABNORMAL_STOP,
+                            ObservationType.IMPACT, ObservationType.OBSTACLE);
+                    double priorSignalScore = -1;
+                    for (ObservationType signal : progression) {
+                        double signalScore = collisionSignalScores.get(signal);
+                        assertTrue(signalScore > priorSignalScore,
+                                signal + " should increase the score during collision replay");
+                        priorSignalScore = signalScore;
+                    }
+                    assertEquals(SafetyState.CONTINUING_HAZARD, s3.getSafetyState());
+                    assertEquals(OperationalRole.EARLY_APPROACH_WARNING, section(system, "S1").getRole());
+                    assertEquals(OperationalRole.IMMEDIATE_HAZARD_WARNING, section(system, "S2").getRole());
+                    assertEquals(OperationalRole.INCIDENT_AWARENESS, s3.getRole());
+                    assertEquals(OperationalRole.CONTINUING_HAZARD_MONITORING, section(system, "S4").getRole());
+                    assertEquals(OperationalRole.NORMAL_MONITORING, section(system, "S5").getRole());
+                    assertTrue(activeIncident);
+                }
+                case FALSE_POSITIVE -> {
+                    assertTrue(s3Scores.stream().anyMatch(score -> score > 0),
+                            "false-positive evidence should rise temporarily");
+                    assertEquals(SafetyState.NORMAL, s3.getSafetyState());
+                    assertFalse(activeIncident);
+                }
+                case CONTRADICTORY_DATA -> {
+                    assertTrue(s3Scores.stream().anyMatch(score -> score > 0));
+                    assertEquals(SafetyState.INCIDENT_CONFIRMATION, s3.getSafetyState());
+                    assertFalse(activeIncident);
+                    assertTrue(s3.getLatestEvidence().status() == EvidenceStatus.CONTRADICTORY
+                                    || system.getHistory().stream().anyMatch(entry ->
+                                    entry.category().equals("EVIDENCE_CONTRADICTION")
+                                            && entry.roadSectionId().equals("S3")),
+                            "contradiction must remain visible in evidence or history");
+                }
+                case CONTINUING_HAZARD -> {
+                    assertEquals(SafetyState.CONTINUING_HAZARD, s3.getSafetyState());
+                    assertTrue(activeIncident);
+                }
+                case RECOVERY -> {
+                    assertTrue(recoveryAchieved);
+                    assertEquals(SafetyState.NORMAL, s3.getSafetyState());
+                    assertFalse(activeIncident);
+                    assertEquals(ObservationType.ROAD_CLEAR, system.getObservations().stream()
+                            .filter(observation -> observation.roadSectionId().equals("S3"))
+                            .reduce((first, second) -> second)
+                            .orElseThrow().observationType());
+                    assertNull(s3.getWarning());
+                }
+                default -> throw new IllegalStateException("Unexpected validated scenario: " + type);
+            }
+        }
     }
 
     @Test
@@ -210,6 +375,13 @@ class ScenarioTest {
         RoadSafetySystem system = new RoadSafetySystem();
         runner.run(type, system, (event, result) -> { });
         return system;
+    }
+
+    private Observation observation(String id, ObservationType type, Instant timestamp, String evidenceGroup) {
+        return new Observation(id, "COURSE-SCORE-TEST", "TEST", timestamp, "RU-3", "S3", "TEST-VEHICLE",
+                type, "UPHILL", 35, type == ObservationType.ABNORMAL_STOP ? 15 : 0,
+                type == ObservationType.IMPACT, type == ObservationType.OBSTACLE,
+                "CLEAR", "DRY", 0.9, "evaluation-only", evidenceGroup);
     }
 
     private SafetyState sectionState(RoadSafetySystem system, String sectionId) {

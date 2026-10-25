@@ -46,14 +46,18 @@ The CSV is bundled as a Maven classpath resource from `src/main/java/edu/roadsaf
 
 ## Simulation parameters
 
-The default course-project evidence parameters are configured in `ThresholdConfig`:
+The dashboard displays the simulation's **Course-Project Evidence Support Score**, a visualization
+parameter for evidence corroboration; it is not a formula supplied by the invention disclosure.
+Scores are normalized to `0–100`. The default course-project thresholds are configured in
+`ThresholdConfig`:
 
-- abnormal score: `1.5`
-- confirmation score: `3.5`
-- confirmed score: `5.0`
+- `0–39`: insufficient evidence
+- `40–59`: abnormal condition
+- `60–79`: incident confirmation
+- `80–100`: confirmed-incident threshold
 - evidence association window: `2 minutes`
 - stale evidence age: `5 minutes`
 
-Observations below confidence `0.5` and `OBSERVATION_GAP` are treated as degraded. Confirmation additionally requires at least three distinct supporting observation types, at least two evidence groups, a critical impact/loss-of-control indication, and no matching high-confidence normal-passage contradiction. These are educational simulation rules, not patent-defined thresholds.
+The evidence service uses confidence-weighted contributions for observation types, associates observations within the evidence window, and groups corroboration by observation type and evidence group. Matching normal-passage evidence applies a configurable penalty. The final score is bounded to `0–100`; confirmation additionally requires at least three distinct supporting observation types, at least two evidence groups, a critical impact/loss-of-control indication, and no matching high-confidence normal-passage contradiction. A single abnormal-stop observation contributes to the score but cannot confirm an incident. Observations below confidence `0.5` and `OBSERVATION_GAP` are treated as degraded. These formulas, ranges, and rules are course-project simulation parameters, not patent-defined thresholds.
 
 See [TECHNICAL_OVERVIEW.md](./TECHNICAL_OVERVIEW.md) for architecture, evidence logic, state transitions, history, scenario coverage, and limitations.

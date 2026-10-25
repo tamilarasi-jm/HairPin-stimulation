@@ -40,7 +40,8 @@ public final class EvidenceCorroborationService {
 
     public EvidenceResult evaluate(String sectionId, List<Observation> observations, Observation trigger,
                                    Instant evaluationTime, Set<String> connectedSectionIds) {
-        if (trigger.observationType() == ObservationType.OBSERVATION_GAP || trigger.quality() < 0.5) {
+        if (trigger.observationType() == ObservationType.OBSERVATION_GAP
+                || trigger.quality() < CourseEvidenceScoringConfig.MINIMUM_TRIGGER_QUALITY) {
             return new EvidenceResult(0, EvidenceStatus.DEGRADED, List.of(), List.of(),
                     "The latest simulated observation is missing or below the configured quality floor");
         }
@@ -70,13 +71,14 @@ public final class EvidenceCorroborationService {
         Map<String, Observation> strongestByTypeAndGroup = new LinkedHashMap<>();
         List<Observation> contradictoryObservations = relevant.stream()
                 .filter(observation -> CONTRADICTORY_TYPES.contains(observation.observationType())
-                        && observation.quality() >= 0.5)
+                        && observation.quality() >= CourseEvidenceScoringConfig.MINIMUM_CONTRADICTION_QUALITY)
                 .toList();
         Set<ObservationType> distinctSupport = EnumSet.noneOf(ObservationType.class);
         Set<String> evidenceGroups = new java.util.HashSet<>();
 
         for (Observation observation : relevant) {
-            if (SUPPORTING_TYPES.contains(observation.observationType()) && observation.quality() >= 0.4) {
+            if (SUPPORTING_TYPES.contains(observation.observationType())
+                    && observation.quality() >= CourseEvidenceScoringConfig.MINIMUM_SUPPORTING_QUALITY) {
                 String evidenceGroup = observation.evidenceGroup().isBlank()
                         ? observation.observationId() : observation.evidenceGroup();
                 String key = observation.observationType() + ":" + evidenceGroup;
@@ -107,11 +109,13 @@ public final class EvidenceCorroborationService {
                 : List.of();
 
         if (!contradictions.isEmpty() && !supporting.isEmpty()) {
-            score = Math.max(0, score - contradictoryObservations.stream()
-                    .mapToDouble(observation -> 1.5 * observation.quality()).sum());
+            score = CourseEvidenceScoringConfig.clampScore(score - contradictoryObservations.stream()
+                    .mapToDouble(observation -> CourseEvidenceScoringConfig.CONTRADICTION_PENALTY
+                            * observation.quality()).sum());
             return new EvidenceResult(score, EvidenceStatus.CONTRADICTORY, supporting, contradictions,
                     "Recent normal-passage evidence conflicts with abnormal observations for the same vehicle and direction");
         }
+        score = CourseEvidenceScoringConfig.clampScore(score);
         if (supporting.isEmpty() || score < thresholds.abnormalScore()) {
             return new EvidenceResult(score, EvidenceStatus.INSUFFICIENT, supporting, contradictions,
                     "Available observations do not reach the abnormal-evidence threshold");
