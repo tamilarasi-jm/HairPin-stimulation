@@ -1,0 +1,10 @@
+package edu.roadsafety.enums;
+
+public enum OperationalRole {
+    NORMAL_MONITORING,
+    IMMEDIATE_HAZARD_WARNING,
+    EARLY_APPROACH_WARNING,
+    INCIDENT_AWARENESS,
+    CONTINUING_HAZARD_MONITORING,
+    RECOVERY_MONITORING
+}

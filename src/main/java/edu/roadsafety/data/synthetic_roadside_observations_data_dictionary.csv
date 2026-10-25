@@ -1,0 +1,19 @@
+column,meaning,example
+observation_id,Unique observation identifier,OBS-0001
+scenario_id,Synthetic scenario run identifier,CORR-01
+scenario_type,Scenario used to generate the observation,CORROBORATED_COLLISION
+timestamp,Simulation event timestamp,2026-10-24 10:00:02
+road_section,Simulated connected road section,S3
+roadside_unit,Roadside unit associated with section,RU-3
+vehicle_id,Synthetic vehicle identifier,V0301
+direction,Simulated movement direction,UPHILL
+observation_type,Observed event,IMPACT
+speed_kmh,Simulated vehicle speed,0
+stopping_duration_sec,Simulated stopping duration,12
+impact_detected,Synthetic impact indicator,1
+obstacle_detected,Synthetic obstacle indicator,1
+weather_condition,Synthetic environmental condition,CLEAR
+road_condition,Synthetic road condition,DRY
+confidence,Confidence attached to the synthetic observation,0.94
+ground_truth_event,Evaluation-only truth label; not used by engine,True
+evidence_group,Groups observations that can corroborate one event,CORR-01-E2
